@@ -1,11 +1,12 @@
+import org.apache.spark
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.sql.functions.{min, max}
-import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{DataFrame, SparkSession, Row}
 import org.apache.spark.ml.feature.VectorAssembler
 import org.apache.spark.ml.tuning.{CrossValidator, ParamGridBuilder, CrossValidatorModel}
-
 import org.apache.spark.ml.classification.{BinaryLogisticRegressionSummary, LogisticRegression}
+import org.apache.spark.sql.types.DateType
+import org.apache.spark.sql.functions._
 /**
   * Created by edwardcannon on 26/06/2017.
   * Simple example of building a logistic regression model
@@ -16,6 +17,7 @@ object CreditCardMainEntry {
 
   /**
     * Reads in a csv to sql dataframe
+ *
     * @param spark - Spark session
     * @param ifile - input .csv file path
     * @return
@@ -26,6 +28,7 @@ object CreditCardMainEntry {
 
   /**
     * Creates logistic regression model and cross-validates with 5-fold
+ *
     * @param df - Input data frame
     * @return
     */
@@ -61,14 +64,37 @@ object CreditCardMainEntry {
     (cvModel, testerDF)
   }
 
+  /***
+    * Converts column of string to timestamp
+    * @param df - Input data frame
+    * @param input_col - column name to convert
+    * @return
+    */
+  def convert_2_timestamp(df : DataFrame, input_col : String): DataFrame ={
+    val output = input_col.concat("_");
+    df.withColumn(output, (col(input_col).cast("timestamp"))).drop(input_col)
+  }
+
   def main(args: Array[String]) : Unit = {
     val spark = SparkSession.builder
       .master("local[2]")
       .appName("Fraud detection")
       .getOrCreate()
 
-    val df = CreditCardMainEntry.read_csv(spark,args(0))
-    val cvModel, testerDF = CreditCardMainEntry.buildLogisticRegression(df)
-    cvModel._1.transform(testerDF._2).groupBy("prediction").count().show()
+    import spark.implicits._
+
+    val df = CreditCardMainEntry.read_csv(spark, "/Users/edwardcannon/Downloads/ss_fb_bw.csv")
+    val df1 = CreditCardMainEntry.convert_2_timestamp(df, "comment_published_timestamp")
+    val df2 = CreditCardMainEntry.convert_2_timestamp(df1, "post_published_timestamp")
+    val df3 = df2.withColumn("_comment_author_fullname", split($"comment_author_fullname", " ")).select(
+      $"_comment_author_fullname".getItem(0).as("first_name"),
+      $"_comment_author_fullname".getItem(1).as("last_name"),
+      df2.col("comment_author_fullname")
+    )//.drop("_comment_author_fullname")
+    val df4 = df2.join(df3, df2.col("comment_author_fullname").equalTo(df3.col("comment_author_fullname"))).drop(df3.col("comment_author_fullname"))
+    df4.show(100)
+    //val df = CreditCardMainEntry.read_csv(spark,args(0))
+    //val cvModel, testerDF = CreditCardMainEntry.buildLogisticRegression(df)
+    //cvModel._1.transform(testerDF._2).groupBy("prediction").count().show()
   }
 }
